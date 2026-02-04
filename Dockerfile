@@ -1,28 +1,14 @@
-FROM python:3.11-slim
+FROM python:3.11
+
+ENV PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=on
 
 WORKDIR /app
 
-# Устанавливаем системные зависимости
-RUN apt-get update && apt-get install -y \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt /app/requirements.txt
 
-# Копируем requirements и устанавливаем зависимости
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade -r /app/requirements.txt
 
-# Копируем исходный код
-COPY . .
+COPY . /app
 
-# Создаем пользователя для безопасности
-RUN useradd -m -u 1000 botuser && chown -R botuser:botuser /app
-USER botuser
-
-# Создаем директории для данных
-RUN mkdir -p /app/data /app/logs
-
-# Открываем порт для вебхука
-EXPOSE 8080
-
-# Команда запуска (по умолчанию вебхук режим)
-CMD ["python", "maxbot_site_monitor.py", "--webhook"]
+CMD ["python", "telegram_site_monitor.py"]
