@@ -11,7 +11,7 @@ import time
 import logging
 import asyncio
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Set
 
 import aiohttp
 from telegram import Update
@@ -52,7 +52,9 @@ logger = logging.getLogger(__name__)
 monitoring_active = True
 site_status = "unknown"
 consecutive_errors = 0
-subscribers = set()  # Множество chat_id подписчиков
+subscribers: Set[int] = set()  # Множество chat_id подписчиков
+already_notified_down = False  # Флаг, что уведомление о сбое уже отправлено
+downtime_start: datetime = None  # Время начала простоя
 
 # Статистика
 stats = {
@@ -68,7 +70,7 @@ stats = {
 
 async def check_website() -> Dict[str, Any]:
     """Проверяет доступность сайта"""
-    global site_status, consecutive_errors, stats
+    global site_status, consecutive_errors, stats, already_notified_down, downtime_start
     
     stats['total_checks'] += 1
     check_time = datetime.now()
@@ -87,9 +89,13 @@ async def check_website() -> Dict[str, Any]:
                 
                 if 200 <= status_code < 400:
                     stats['successful_checks'] += 1
-                    consecutive_errors = 0
                     site_status = "up"
                     stats['last_up_time'] = check_time
+                    
+                    # Если были ошибки, сбрасываем счетчик
+                    if consecutive_errors > 0:
+                        consecutive_errors = 0
+                        logger.info(f"✅ Восстановление после {stats['failed_checks']} ошибок")
                     
                     logger.info(f"✅ Проверка #{stats['total_checks']}: Сайт доступен (код: {status_code})")
                     
@@ -98,12 +104,17 @@ async def check_website() -> Dict[str, Any]:
                         'code': status_code,
                         'response_time': response_time,
                         'message': f"✅ Сайт доступен",
-                        'timestamp': check_time
+                        'timestamp': check_time,
+                        'recovered': already_notified_down  # Флаг восстановления после уведомления
                     }
                 else:
                     stats['failed_checks'] += 1
                     consecutive_errors += 1
                     site_status = "down"
+                    
+                    # Запоминаем время начала простоя
+                    if not downtime_start:
+                        downtime_start = check_time
                     
                     if not stats['last_down_time']:
                         stats['last_down_time'] = check_time
@@ -114,7 +125,8 @@ async def check_website() -> Dict[str, Any]:
                         'status': 'error',
                         'code': status_code,
                         'message': f"❌ HTTP ошибка {status_code}",
-                        'timestamp': check_time
+                        'timestamp': check_time,
+                        'consecutive_errors': consecutive_errors
                     }
                     
     except Exception as e:
@@ -122,20 +134,25 @@ async def check_website() -> Dict[str, Any]:
         consecutive_errors += 1
         site_status = "down"
         
+        # Запоминаем время начала простоя
+        if not downtime_start:
+            downtime_start = datetime.now()
+        
         if not stats['last_down_time']:
-            stats['last_down_time'] = check_time
+            stats['last_down_time'] = datetime.now()
         
         logger.error(f"❌ Проверка #{stats['total_checks']}: Ошибка подключения - {str(e)}")
         
         return {
             'status': 'error',
             'message': f"❌ Ошибка подключения: {str(e)}",
-            'timestamp': check_time
+            'timestamp': datetime.now(),
+            'consecutive_errors': consecutive_errors
         }
 
 async def monitoring_task(context: CallbackContext):
     """Фоновая задача для мониторинга сайта"""
-    global monitoring_active
+    global monitoring_active, already_notified_down, downtime_start
     
     logger.info(f"🚀 Запуск мониторинга: {CHECK_URL}")
     logger.info(f"⏱️ Интервал проверки: {CHECK_INTERVAL} секунд")
@@ -144,8 +161,11 @@ async def monitoring_task(context: CallbackContext):
         try:
             result = await check_website()
             
-            # Отправляем уведомления при критических ошибках
-            if result['status'] == 'error' and consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+            # Отправляем ОДНО уведомление о сбое при достижении критического уровня
+            if (result['status'] == 'error' and 
+                result.get('consecutive_errors', 0) >= MAX_CONSECUTIVE_ERRORS and
+                not already_notified_down):
+                
                 if subscribers:
                     message = format_critical_error_message(result)
                     for chat_id in list(subscribers):
@@ -157,9 +177,16 @@ async def monitoring_task(context: CallbackContext):
                             )
                         except Exception as e:
                             logger.error(f"Ошибка отправки уведомления {chat_id}: {e}")
+                    
+                    # Устанавливаем флаг, что уведомление отправлено
+                    already_notified_down = True
+                    logger.info(f"🚨 Отправлено уведомление о сбое {len(subscribers)} подписчикам")
             
-            # Отправляем уведомление о восстановлении
-            elif result['status'] == 'success' and consecutive_errors == 1:
+            # Отправляем ОДНО уведомление о восстановлении
+            elif (result['status'] == 'success' and 
+                  already_notified_down and 
+                  result.get('recovered', False)):
+                
                 if subscribers:
                     message = format_recovery_message(result)
                     for chat_id in list(subscribers):
@@ -171,6 +198,11 @@ async def monitoring_task(context: CallbackContext):
                             )
                         except Exception as e:
                             logger.error(f"Ошибка отправки восстановления {chat_id}: {e}")
+                    
+                    # Сбрасываем флаги после восстановления
+                    already_notified_down = False
+                    downtime_start = None
+                    logger.info(f"✅ Отправлено уведомление о восстановлении {len(subscribers)} подписчикам")
             
             await asyncio.sleep(CHECK_INTERVAL)
             
@@ -181,32 +213,37 @@ async def monitoring_task(context: CallbackContext):
 def format_critical_error_message(result: Dict[str, Any]) -> str:
     """Форматирует сообщение о критической ошибке"""
     timestamp = result['timestamp'].strftime("%Y-%m-%d %H:%M:%S")
+    consecutive = result.get('consecutive_errors', 0)
     
-    return f"""🚨 <b>КРИТИЧЕСКАЯ ОШИБКА!</b>
+    return f"""🚨 <b>САЙТ НЕДОСТУПЕН!</b>
 
 🌐 <b>Сайт:</b> {CHECK_URL}
-🕒 <b>Время:</b> {timestamp}
-🔴 <b>Ошибок подряд:</b> {consecutive_errors}
-❌ <b>Ошибка:</b> {result['message']}
+🕒 <b>Время сбоя:</b> {timestamp}
+🔴 <b>Ошибок подряд:</b> {consecutive}
 
-🚨 <i>Требуется срочное вмешательство!</i>"""
+❌ <b>Причина:</b> {result['message']}
+
+<i>Бот продолжит мониторинг. Вы получите уведомление при восстановлении.</i>"""
 
 def format_recovery_message(result: Dict[str, Any]) -> str:
     """Форматирует сообщение о восстановлении"""
+    global downtime_start
+    
     timestamp = result['timestamp'].strftime("%Y-%m-%d %H:%M:%S")
     
     downtime = "неизвестно"
-    if stats['last_down_time']:
-        downtime_duration = result['timestamp'] - stats['last_down_time']
+    if downtime_start:
+        downtime_duration = result['timestamp'] - downtime_start
         downtime = str(downtime_duration).split('.')[0]
     
     return f"""✅ <b>САЙТ ВОССТАНОВЛЕН!</b>
 
 🌐 <b>Сайт:</b> {CHECK_URL}
 🕒 <b>Время восстановления:</b> {timestamp}
-⏱️ <b>Простой:</b> {downtime}
+⏱️ <b>Общий простой:</b> {downtime}
+📊 <b>Ответ сервера:</b> {result.get('code', 'N/A')} ({result.get('response_time', 0):.2f} сек)
 
-🎉 <i>Сайт снова доступен</i>"""
+🎉 <i>Мониторинг продолжается в обычном режиме</i>"""
 
 def get_stats() -> Dict[str, Any]:
     """Возвращает статистику мониторинга"""
@@ -220,9 +257,16 @@ def get_stats() -> Dict[str, Any]:
     else:
         availability = 0
     
+    status_text = "🟢 Доступен"
+    if site_status == "down":
+        if already_notified_down:
+            status_text = "🔴 КРИТИЧЕСКИЙ СБОЙ (уведомление отправлено)"
+        else:
+            status_text = "🟡 Проблемы (мониторинг)"
+    
     return {
         'site_url': CHECK_URL,
-        'status': "🟢 Доступен" if site_status == "up" else "🔴 Недоступен",
+        'status': status_text,
         'uptime': str(uptime).split('.')[0],
         'total_checks': total,
         'successful_checks': successful,
@@ -230,7 +274,8 @@ def get_stats() -> Dict[str, Any]:
         'availability': f"{availability:.1f}%",
         'errors_count': consecutive_errors,
         'subscribers': len(subscribers),
-        'last_check': datetime.now().strftime("%H:%M:%S")
+        'last_check': datetime.now().strftime("%H:%M:%S"),
+        'notified_down': already_notified_down
     }
 
 # ========== ОБРАБОТЧИКИ КОМАНД БОТА ==========
@@ -254,7 +299,10 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /unsubscribe - Отписаться от уведомлений
 /help - Справка по командам
 
-⚡ <b>Примечание:</b> Проверка каждые {CHECK_INTERVAL} секунд
+<b>Уведомления:</b>
+• 📨 Одно сообщение при сбое (после {MAX_CONSECUTIVE_ERRORS} ошибок)
+• ✅ Одно сообщение при восстановлении
+• 🔕 Без спама - только важные события
 
 🆔 <b>Ваш ID:</b> <code>{user.id}</code>
 📅 <b>Дата:</b> {datetime.now().strftime('%d.%m.%Y %H:%M')}""",
@@ -267,11 +315,14 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current_stats = get_stats()
     
     if site_status == "up":
-        status_msg = "✅ Сайт работает стабильно"
-    elif consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
-        status_msg = "🚨 КРИТИЧЕСКАЯ ОШИБКА! Требуется вмешательство!"
+        if already_notified_down:
+            status_msg = "✅ Сайт восстановлен после сбоя"
+        else:
+            status_msg = "✅ Сайт работает стабильно"
+    elif already_notified_down:
+        status_msg = f"🚨 КРИТИЧЕСКИЙ СБОЙ! Уведомление отправлено ({consecutive_errors} ошибок)"
     else:
-        status_msg = "⚠️ Проблемы с доступностью сайта"
+        status_msg = f"⚠️ Проблемы ({consecutive_errors}/{MAX_CONSECUTIVE_ERRORS} ошибок)"
     
     await update.message.reply_text(
         f"""📊 <b>Текущий статус:</b>
@@ -279,7 +330,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🌐 Сайт: {CHECK_URL}
 🔄 Статус: {current_stats['status']}
 ⏱️ Последняя проверка: {current_stats['last_check']}
-🔴 Ошибок подряд: {consecutive_errors}
+🔴 Ошибок подряд: {consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}
 
 {status_msg}""",
         parse_mode=ParseMode.HTML,
@@ -289,6 +340,8 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /stats"""
     current_stats = get_stats()
+    
+    notification_status = "✅ Уведомление отправлено" if current_stats['notified_down'] else "⏳ Ожидание критического уровня"
     
     await update.message.reply_text(
         f"""📈 <b>Статистика мониторинга:</b>
@@ -300,6 +353,10 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ❌ Ошибок: {current_stats['failed_checks']}
 📊 Доступность: {current_stats['availability']}
 👥 Подписчиков: {current_stats['subscribers']}
+
+<b>Текущее состояние:</b>
+🔢 Ошибок подряд: {current_stats['errors_count']}/{MAX_CONSECUTIVE_ERRORS}
+🔔 Статус уведомлений: {notification_status}
 
 ⏰ Интервал: {CHECK_INTERVAL} секунд""",
         parse_mode=ParseMode.HTML,
@@ -319,10 +376,14 @@ async def subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     subscribers.add(chat_id)
     await update.message.reply_text(
-        "✅ Вы подписались на уведомления!\n\n"
-        "Вы будете получать сообщения при:\n"
-        "• Критических ошибках сайта\n"
-        "• Восстановлении работы сайта",
+        f"""✅ Вы подписались на уведомления!
+
+📨 <b>Вы будете получать:</b>
+• Одно сообщение при сбое (после {MAX_CONSECUTIVE_ERRORS} ошибок подряд)
+• Одно сообщение при восстановлении работы сайта
+• Никакого спама - только важные события
+
+👥 Всего подписчиков: {len(subscribers)}""",
         parse_mode=ParseMode.HTML
     )
 
@@ -356,15 +417,16 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /unsubscribe - Отписаться
 /help - Эта справка
 
+<b>Как работают уведомления:</b>
+1. Бот молча проверяет сайт каждые {CHECK_INTERVAL} секунд
+2. При {MAX_CONSECUTIVE_ERRORS} ошибках подряд - одно уведомление всем подписчикам
+3. После восстановления - одно уведомление о восстановлении
+4. Далее бот снова молчит до следующего критического сбоя
+
 <b>Информация:</b>
 • Сайт: {CHECK_URL}
 • Интервал проверки: {CHECK_INTERVAL} секунд
-• Бот работает 24/7
-
-<b>Как работает мониторинг:</b>
-1. Бот проверяет сайт каждые {CHECK_INTERVAL} секунд
-2. При ошибках отправляет уведомления подписчикам
-3. Отслеживает статистику доступности""",
+• Критический уровень: {MAX_CONSECUTIVE_ERRORS} ошибок подряд""",
         parse_mode=ParseMode.HTML,
         disable_web_page_preview=True
     )
@@ -376,6 +438,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text in ['привет', 'hello', 'hi', 'здравствуй']:
         await update.message.reply_text(
             f"👋 Привет! Я бот для мониторинга сайта {CHECK_URL}\n\n"
+            f"Я работаю тихо - отправляю уведомления только при серьезных проблемах.\n"
             f"Напишите /help для списка команд",
             parse_mode=ParseMode.HTML
         )
@@ -408,9 +471,10 @@ async def post_init(application: Application):
     logger.info("=" * 60)
     logger.info(f"🌐 Мониторинг сайта: {CHECK_URL}")
     logger.info(f"⏱️ Интервал проверки: {CHECK_INTERVAL} сек")
+    logger.info(f"🚨 Критический уровень: {MAX_CONSECUTIVE_ERRORS} ошибок подряд")
     logger.info(f"🔑 Токен бота: ***{BOT_TOKEN[-8:]}")
     logger.info("=" * 60)
-    logger.info("✅ Бот готов к работе!")
+    logger.info("✅ Бот готов к работе! Работает в тихом режиме.")
     logger.info("=" * 60)
 
 def main():
@@ -423,6 +487,7 @@ def main():
     
     logger.info(f"🚀 Запуск Site Monitor Bot...")
     logger.info(f"🌐 Сайт для мониторинга: {CHECK_URL}")
+    logger.info(f"🔕 Режим: тихий (уведомления только при критических сбоях)")
     
     try:
         # Создаем приложение бота
