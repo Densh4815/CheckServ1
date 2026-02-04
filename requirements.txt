@@ -1,0 +1,12 @@
+# Основные зависимости для MaxBot монитора сайта
+maxbot
+requests==2.31.0
+
+# Дополнительные библиотеки для расширенного функционала
+python-dotenv==1.0.0
+loguru==0.7.2
+prometheus-client==0.19.0
+
+# Для интеграции с Bothost
+sqlalchemy==2.0.23
+redis==5.0.1
