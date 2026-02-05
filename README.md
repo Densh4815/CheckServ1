@@ -3,11 +3,11 @@
 **Профессиональный мониторинг сайтов через мессенджер Max с интеграцией Bothost**
 
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://python.org)
-[![MaxBot](https://img.shields.io/badge/MaxBot-Integrated-green.svg)](https://max.messenger.com)
+[![CheckBot](https://img.shields.io/badge/MaxBot-Integrated-green.svg)]()
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://docker.com)
 [![Bothost](https://img.shields.io/badge/Bothost-Compatible-yellow.svg)](https://bothost.ru)
 
-> 🚀 **Готовое решение для мониторинга сайтов** через Max Messenger с мгновенными уведомлениями, статистикой и веб-панелью.
+> 🚀 **Готовое решение для мониторинга сайтов** через CheckBot с мгновенными уведомлениями, статистикой и веб-панелью.
 
 ## ✨ Особенности
 
