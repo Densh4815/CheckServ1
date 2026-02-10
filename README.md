@@ -3,8 +3,9 @@
 **Мониторинг сервера через мессенджер с Bothost**
 
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://python.org)
-[![CheckBot](https://img.shields.io/badge/MaxBot-Integrated-green.svg)]()
+
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://docker.com)
+
 [![Bothost](https://img.shields.io/badge/Bothost-Compatible-yellow.svg)](https://bothost.ru)
 
 > 🚀 **Готовое решение для мониторинга сайта** через CheckBot с мгновенными уведомлениями, статистикой и веб-панелью.
