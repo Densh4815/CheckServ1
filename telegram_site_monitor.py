@@ -28,11 +28,12 @@ from telegram.constants import ParseMode
 # ========== КОНФИГУРАЦИЯ ИЗ СИСТЕМНЫХ ПЕРЕМЕННЫХ ==========
 
 # Токен берем из системных переменных Bothost (они уже есть!)
-BOT_TOKEN = os.environ.get("TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("BOT_TOKEN")
+# BOT_TOKEN = os.environ.get("TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("BOT_TOKEN")
+BOT_TOKEN = "8385135931:AAED-w-34aqQumt_NPBzATgI__hmVaztA9s"
 
-if not BOT_TOKEN:
-    logging.error("❌ Токен бота не найден в системных переменных!")
-    sys.exit(1)
+#if not BOT_TOKEN:
+#    logging.error("❌ Токен бота не найден в системных переменных!")
+#    sys.exit(1)
 
 # URL для мониторинга (можно жестко задать или через файл)
 CHECK_URL = "https://home.borodachev-mikhail.ru/"
