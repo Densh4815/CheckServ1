@@ -11,6 +11,7 @@ import time
 import logging
 import asyncio
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Dict, Any, Set
 
 import aiohttp
@@ -46,7 +47,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-
+MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 # ========== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ==========
 
 monitoring_active = True
@@ -61,9 +62,9 @@ stats = {
     'total_checks': 0,
     'successful_checks': 0,
     'failed_checks': 0,
-    'start_time': datetime.now(),
+    'start_time': datetime.now(MOSCOW_TZ),
     'last_down_time': None,
-    'last_up_time': datetime.now(),
+    'last_up_time': datetime.now(MOSCOW_TZ),
 }
 
 # ========== ФУНКЦИИ МОНИТОРИНГА ==========
@@ -73,18 +74,18 @@ async def check_website() -> Dict[str, Any]:
     global site_status, consecutive_errors, stats, already_notified_down, downtime_start
     
     stats['total_checks'] += 1
-    check_time = datetime.now()
+    check_time = datetime.now(MOSCOW_TZ)
     
     timeout = aiohttp.ClientTimeout(total=10)
     
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            start_time = datetime.now()
+            start_time = datetime.now(MOSCOW_TZ)
             
             async with session.get(CHECK_URL, headers={
                 'User-Agent': 'Site-Monitor-Bot/1.0'
             }, ssl=False) as response:
-                response_time = (datetime.now() - start_time).total_seconds()
+                response_time = (datetime.now(MOSCOW_TZ) - start_time).total_seconds()
                 status_code = response.status
                 
                 if 200 <= status_code < 400:
@@ -136,17 +137,17 @@ async def check_website() -> Dict[str, Any]:
         
         # Запоминаем время начала простоя
         if not downtime_start:
-            downtime_start = datetime.now()
+            downtime_start = datetime.now(MOSCOW_TZ)
         
         if not stats['last_down_time']:
-            stats['last_down_time'] = datetime.now()
+            stats['last_down_time'] = datetime.now(MOSCOW_TZ)
         
         logger.error(f"❌ Проверка #{stats['total_checks']}: Ошибка подключения - {str(e)}")
         
         return {
             'status': 'error',
             'message': f"❌ Ошибка подключения: {str(e)}",
-            'timestamp': datetime.now(),
+            'timestamp': datetime.now(MOSCOW_TZ),
             'consecutive_errors': consecutive_errors
         }
 
@@ -247,7 +248,7 @@ def format_recovery_message(result: Dict[str, Any]) -> str:
 
 def get_stats() -> Dict[str, Any]:
     """Возвращает статистику мониторинга"""
-    uptime = datetime.now() - stats['start_time']
+    uptime = datetime.now(MOSCOW_TZ) - stats['start_time']
     
     total = stats['total_checks']
     successful = stats['successful_checks']
@@ -274,7 +275,7 @@ def get_stats() -> Dict[str, Any]:
         'availability': f"{availability:.1f}%",
         'errors_count': consecutive_errors,
         'subscribers': len(subscribers),
-        'last_check': datetime.now().strftime("%H:%M:%S"),
+        'last_check': datetime.now(MOSCOW_TZ).strftime("%H:%M:%S"),
         'notified_down': already_notified_down
     }
 
@@ -305,7 +306,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • 🔕 Без спама - только важные события
 
 🆔 <b>Ваш ID:</b> <code>{user.id}</code>
-📅 <b>Дата:</b> {datetime.now().strftime('%d.%m.%Y %H:%M')}""",
+📅 <b>Дата:</b> {datetime.now(MOSCOW_TZ).strftime('%d.%m.%Y %H:%M')}""",
         parse_mode=ParseMode.HTML,
         disable_web_page_preview=True
     )
