@@ -39,13 +39,12 @@ from telegram.ext import (
 )
 from telegram.constants import ParseMode
 
-# ========== КОНФИГУРАЦИЯ ИЗ СИСТЕМНЫХ ПЕРЕМЕННЫХ ==========
+# ========== КОНФИГУРАЦИЯ ==========
 
-# Токен берем из системных переменных Bothost (они уже есть!)
 BOT_TOKEN = os.environ.get("TOKEN") or os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("BOT_TOKEN")
 
 if not BOT_TOKEN:
-    logging.error("❌ Токен бота не найден в системных переменных!")
+    logging.error("❌ Токен бота не найден")
     sys.exit(1)
 
 # URL для мониторинга (можно жестко задать или через файл)
@@ -481,7 +480,7 @@ async def post_init(application: Application):
     job_queue.run_once(lambda ctx: asyncio.create_task(monitoring_task(ctx)), when=3)
     
     logger.info("=" * 60)
-    logger.info("🤖 БОТ ЗАПУЩЕН НА BOTHOST")
+    logger.info("🤖 БОТ ЗАПУЩЕН")
     logger.info("=" * 60)
     logger.info(f"🌐 Мониторинг сайта: {CHECK_URL}")
     logger.info(f"⏱️ Интервал проверки: {CHECK_INTERVAL} сек")
@@ -495,8 +494,7 @@ def main():
     """Точка входа в программу"""
     # Проверяем наличие токена
     if not BOT_TOKEN:
-        logger.error("❌ Токен бота не найден!")
-        logger.info("ℹ️ Bothost должен автоматически установить переменные TOKEN, TELEGRAM_BOT_TOKEN")
+        logger.error("❌ Токен бота не найден!")        
         return
     
     logger.info(f"🚀 Запуск Site Monitor Bot...")
