@@ -48,7 +48,7 @@ if not BOT_TOKEN:
     sys.exit(1)
 
 # URL для мониторинга (можно жестко задать или через файл)
-CHECK_URL = "https://home.borodachev-mikhail.ru/"
+CHECK_URL = "https://"
 CHECK_INTERVAL = 10  # секунд
 MAX_CONSECUTIVE_ERRORS = 3
 
