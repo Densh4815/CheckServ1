@@ -1,8 +1,21 @@
 #!/usr/bin/env python3
 """
 УПРОЩЕННЫЙ Telegram бот для мониторинга сайта
-Использует системные переменные окружения Bothost
-Работает на бесплатном тарифе
+замены datetime.now(MOSCOW_TZ)
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+nano /etc/systemd/system/sitebot.service
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/CheckServ1
+Environment=BOT_TOKEN=ТВОЙ_ТОКЕН
+ExecStart=/root/CheckServ1/venv/bin/python /root/CheckServ1/telegram_site_monitor.py
+Restart=always
+RestartSec=5
+TimeoutStopSec=5
+KillMode=mixed
 """
 
 import os
